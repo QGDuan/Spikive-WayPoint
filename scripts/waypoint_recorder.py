@@ -40,6 +40,7 @@ ROUTE_KIND = "spikive.localization_route"
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 LOCALIZATION_STATES = {"idle", "recording", "recorded", "loaded"}
 LOCALIZATION_PHASES = {"new", "record_start", "record_stop", "save", "load", "delete", "reorder"}
+DEFAULT_INCLUDE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "include"))
 
 
 class StrictCommandError(ValueError):
@@ -142,7 +143,7 @@ class WaypointRecorder:
         self.frame_id = rospy.get_param("~frame_id", "world")
         self.json_path = rospy.get_param(
             "~json_path",
-            "/home/colman/ego_ws/src/Utils/waypoint_recorder/include/waypoints.json",
+            os.path.join(DEFAULT_INCLUDE_DIR, "waypoints.json"),
         )
         self.include_dir = os.path.dirname(self.json_path)
         self.cloud_temp_dir = rospy.get_param(
