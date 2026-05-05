@@ -328,6 +328,9 @@ class WaypointRecorder:
     def _add_waypoint_cb(self, msg):
         if self._check_route_edit_guard("add_waypoint"):
             return
+        if not self._has_ready_localization_cloud():
+            rospy.logwarn("Rejected add_waypoint: localization point cloud is not ready")
+            return
         p = msg.pose.position
         idx = len(self.waypoints) + 1
         wp = {
@@ -857,10 +860,26 @@ class WaypointRecorder:
                       idx + 1, len(self.waypoints), wp["x"], wp["y"], wp["z"])
 
     # ------------------------------------------------- localization/project helpers
+    def _has_ready_localization_cloud(self):
+        if self.cloud_state == "recorded":
+            return (
+                self.unsaved_cloud_tmp_path is not None
+                and self.unsaved_cloud_point_count > 0
+                and os.path.isfile(self.unsaved_cloud_tmp_path)
+            )
+        if self.cloud_state == "loaded":
+            return (
+                self.current_cloud_path is not None
+                and self.current_cloud_point_count > 0
+                and os.path.isfile(self.current_cloud_path)
+            )
+        return False
+
     def _localization_capabilities(self):
         is_executing = self.exec_state == "executing"
         is_recording = self.cloud_state == "recording"
         has_route = bool(self.current_route_id)
+        has_ready_cloud = self._has_ready_localization_cloud()
         unsaved_or_editable_route = has_route and self.saved_project_name is None and self.cloud_state != "loaded"
         can_mutate_route = not is_executing and not is_recording
         can_save = (
@@ -879,6 +898,7 @@ class WaypointRecorder:
             "can_load_project": can_mutate_route,
             "can_delete_project": can_mutate_route,
             "can_edit_waypoints": can_mutate_route and has_route,
+            "can_add_waypoint": can_mutate_route and has_route and has_ready_cloud,
             "can_save_project": can_save,
             "can_start_cloud_record": can_record,
             "can_stop_cloud_record": (not is_executing and is_recording),
@@ -1164,7 +1184,6 @@ class WaypointRecorder:
         pcd_tmp_path = None
         pcd_backup_path = None
         point_cloud_meta = None
-        was_loaded = self.cloud_state == "loaded"
 
         try:
             if self.unsaved_cloud_tmp_path is not None:
@@ -1257,13 +1276,12 @@ class WaypointRecorder:
             self.current_cloud_path = pcd_path
             self.current_cloud_point_count = int(point_cloud_meta["point_count"])
             self.unsaved_cloud_point_count = 0
-            self.cloud_state = "loaded" if was_loaded else "recorded"
+            self.cloud_state = "loaded"
         else:
             self.current_cloud_path = None
             self.current_cloud_point_count = 0
             self.unsaved_cloud_point_count = 0
-            if not was_loaded:
-                self.cloud_state = "idle"
+            self.cloud_state = "idle"
         rospy.loginfo("Saved route %s with %d waypoints", name, len(self.waypoints))
 
     def _read_route_json(self, path, expected_name=None, validate_pcd=True):

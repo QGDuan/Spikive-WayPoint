@@ -33,7 +33,7 @@
 
 航点编辑：
 
-- `/drone_{id}_add_waypoint`：`geometry_msgs/PoseStamped`
+- `/drone_{id}_add_waypoint`：`geometry_msgs/PoseStamped`，只有后端 `can_add_waypoint=true` 时接受
 - `/drone_{id}_remove_waypoint`：`std_msgs/Int32`
 - `/drone_{id}_clear_waypoints`：`std_msgs/Empty`
 - `/drone_{id}_waypoint_markers`：`visualization_msgs/MarkerArray`，latched
@@ -63,6 +63,8 @@
 ## 点云闭环
 
 Record Stop 时，节点会取走录制内存、执行 voxel 降采样、写入临时 PCD，并发布一次 `/drone_{id}_localization_pcl`。Save 只复制已降采样的临时 PCD；Save 失败时保留临时 PCD，允许重试；Save 成功后清理临时文件。
+
+Add waypoint 由后端强制闭环：只有已经成功 Record Stop 生成临时 PCD、Save 成功后保留正式 PCD，或 Load 成功加载带点云项目时，`capabilities.can_add_waypoint=true`，`/drone_{id}_add_waypoint` 才会被接受；否则直接拒绝并写 ROS warn，不发布 markers。
 
 Load 会先验证路线 JSON、PCD 文件和点数，全部通过后才切换当前路线并发布点云。Load 失败不会破坏当前路线。New、Delete 当前项目、Load 无点云路线会发布空 `PointCloud2`，用于清理前端和下游的 latched 大消息。
 
