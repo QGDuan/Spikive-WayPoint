@@ -40,6 +40,14 @@ ROUTE_KIND = "spikive.localization_route"
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 LOCALIZATION_STATES = {"idle", "recording", "recorded", "loaded"}
 LOCALIZATION_PHASES = {"new", "record_start", "record_stop", "save", "load", "delete", "reorder"}
+LOCALIZATION_MATCH_STATES = {
+    "idle",
+    "map_loaded",
+    "waiting_initialpose",
+    "matching",
+    "localized",
+    "failed",
+}
 DEFAULT_INCLUDE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "include"))
 
 
@@ -189,6 +197,7 @@ class WaypointRecorder:
         self.nav_current_idx = 0
         self.drone_reached = False
         self.drone_tookoff = False
+        self.localization_match_state = "idle"
         self._nav_sub_state = "sending"   # "sending" | "waiting"
         self._nav_timer = None
 
@@ -260,6 +269,10 @@ class WaypointRecorder:
         )
         rospy.Subscriber(
             f"{self.prefix}stop_waypoint_exec", Empty, self._stop_exec_cb, queue_size=1,
+        )
+        rospy.Subscriber(
+            f"{self.prefix}localization_match_status", String,
+            self._localization_match_status_cb, queue_size=10,
         )
 
         self._publish_project_list()
@@ -767,10 +780,41 @@ class WaypointRecorder:
                 and msg.reached):
             self.drone_reached = True
 
+    def _localization_match_status_cb(self, msg):
+        """Cache backend localization match status for waypoint execution admission."""
+        try:
+            data = json.loads(msg.data)
+            if not isinstance(data, dict):
+                raise StrictCommandError("localization match status must be an object")
+            if data.get("schema_version") != SCHEMA_VERSION:
+                raise StrictCommandError("schema_version must be 1")
+            status_drone_id = data.get("drone_id")
+            if status_drone_id is not None and str(status_drone_id) != self.drone_id:
+                rospy.logwarn(
+                    "Ignoring localization match status for drone_id=%s; expected %s",
+                    status_drone_id, self.drone_id,
+                )
+                return
+            state = data.get("state")
+            if state not in LOCALIZATION_MATCH_STATES:
+                raise StrictCommandError("invalid localization match state")
+            self.localization_match_state = state
+        except Exception as exc:
+            rospy.logwarn("Ignoring invalid localization match status: %s", exc)
+
+    def _is_localization_ready_for_exec(self):
+        return self.localization_match_state == "localized"
+
     def _start_exec_cb(self, _msg):
         """Start waypoint execution if all preconditions are met."""
         if self.exec_state != "idle":
             rospy.logwarn("Start exec rejected: already executing")
+            return
+        if not self._is_localization_ready_for_exec():
+            rospy.logwarn(
+                "Start exec rejected: localization is not localized (state=%s)",
+                self.localization_match_state,
+            )
             return
         if not self.drone_tookoff:
             rospy.logwarn("Start exec rejected: drone not airborne (tookoff=False)")

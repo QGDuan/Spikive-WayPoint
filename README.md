@@ -57,6 +57,7 @@
 - `/drone_{id}_start_waypoint_exec`：`std_msgs/Empty`
 - `/drone_{id}_stop_waypoint_exec`：`std_msgs/Empty`
 - `/drone_{id}_waypoint_exec_state`：`std_msgs/String`，latched
+- `/drone_{id}_localization_match_status`：`std_msgs/String`，用于 Execute 后端准入缓存
 - `/goal_with_id`：`quadrotor_msgs/GoalSet`
 - `/control`：`controller_msgs/cmd`
 
@@ -65,6 +66,8 @@
 Record Stop 时，节点会取走录制内存、执行 voxel 降采样、写入临时 PCD，并发布一次 `/drone_{id}_localization_pcl`。Save 只复制已降采样的临时 PCD；Save 失败时保留临时 PCD，允许重试；Save 成功后清理临时文件。
 
 Add waypoint 由后端强制闭环：只有已经成功 Record Stop 生成临时 PCD、Save 成功后保留正式 PCD，或 Load 成功加载带点云项目时，`capabilities.can_add_waypoint=true`，`/drone_{id}_add_waypoint` 才会被接受；否则直接拒绝并写 ROS warn，不发布 markers。
+
+Execute 由后端二次确认 Localization：节点订阅并缓存 `/drone_{id}_localization_match_status`，只有缓存状态为 `localized`、飞机已起飞且 waypoint 非空时，`/drone_{id}_start_waypoint_exec` 才会进入执行；绕过前端直接 publish 非法 start 会被拒绝。
 
 Load 会先验证路线 JSON、PCD 文件和点数，全部通过后才切换当前路线并发布点云。Load 失败不会破坏当前路线。New、Delete 当前项目、Load 无点云路线会发布空 `PointCloud2`，用于清理前端和下游的 latched 大消息。
 
